@@ -25,6 +25,7 @@ docker image ls --tree  "node-app:$version"
 | **0 — Baseline** | `node-app:v0-baseline` | **1.93 GB** | **485 MB** | — | **46.2 s** | Image initiale non optimisée |
 | **1 — Dockerignore** | `node-app:v1-dockerignore` | **1.93 GB** | **484 MB** | **≈ 1 MB (0.21 %)** | **15.9 s** | Réduction du contexte de build |
 | **2 — Cache** | `node-app:v2-cache` | **1.93 GB** | **484 MB** | **0 MB (0 %) vs étape 1** | **16.7 s** | Réorganisation des couches pour réutiliser le cache des installations |
+| **3 — Alpine** | `node-app:v3-alpine` | **283 MB** | **69.8 MB** | **≈ 414.2 MB (85.6 %) vs étape 2** | **20.4 s** | Base Alpine et suppression des paquets système supplémentaires |
 
 ## Étape 0 — Baseline
 
@@ -133,3 +134,46 @@ Lors du test suivant, après modification de `server.js`, `COPY package.json pac
 ![Taille disque et taille du contenu après réorganisation des couches](docs-images/2/2.png)
 
 ![Reconstruction après modification du serveur avec réutilisation du cache des installations](docs-images/2/3.png)
+
+## Étape 3 — Passage à une base Alpine
+
+### Pourquoi utiliser Alpine ?
+
+L'image `node:latest` repose sur une base Debian contenant de nombreux outils système. La variante `node:alpine` fournit Node.js et npm sur une base plus légère. L'objectif est de réduire la taille de l'image tout en conservant le fonctionnement du serveur.
+
+### Modifications
+
+- **Remplacement de l'image de base :**
+
+```dockerfile
+FROM node:alpine
+```
+
+- **Suppression de l'installation des paquets Debian et de la génération de locale :**
+
+```dockerfile
+RUN apt-get update && apt-get install -y build-essential ca-certificates locales && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen
+```
+
+Alpine utilise `apk` à la place d'`apt-get`, mais aucune installation système supplémentaire n'est nécessaire pour les fonctionnalités testées. Les dépendances actuelles ne montrent pas de besoin de compilation native sous Linux et le script `build` se limite à un affichage.
+
+### Impact
+
+| Mesure | Étape 2 | Étape 3 | Réduction |
+| :--- | ---: | ---: | ---: |
+| Disk Usage | 1.93 GB | **283 MB** | **≈ 85.3 %** |
+| Content Size | 484 MB | **69.8 MB** | **≈ 85.6 %** |
+
+L'utilisation de l'espace disque (Disk Usage) et la taille du contenu (Content Size) diminuent considérablement. Cela résulte principalement du passage à une base Alpine et de la suppression des paquets système supplémentaires.
+
+Les temps de build des différentes étapes ne sont pas directement comparables, car l'état du cache local et les images de base disponibles au moment des mesures peuvent différer. L'option --no-cache désactive la réutilisation du cache des instructions du Dockerfile, mais n'empêche pas Docker d'utiliser une image de base déjà présente localement.
+
+Une fois l'image node:alpine disponible localement, une nouvelle construction avec --no-cache prend environ 4.5 s.
+
+### Vérification manuelle
+
+Les vérifications manuelles ont confirmé le fonctionnement du serveur sous Alpine sans problèmes.
+
+### Preuves d'exécution
+
+![Construction de l'image Alpine et mesure de sa taille](docs-images/3/1.png)
