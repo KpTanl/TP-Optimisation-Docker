@@ -24,6 +24,7 @@ docker image ls --tree  "node-app:$version"
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **0 — Baseline** | `node-app:v0-baseline` | **1.93 GB** | **485 MB** | — | **46.2 s** | Image initiale non optimisée |
 | **1 — Dockerignore** | `node-app:v1-dockerignore` | **1.93 GB** | **484 MB** | **≈ 1 MB (0.21 %)** | **15.9 s** | Réduction du contexte de build |
+| **2 — Cache** | `node-app:v2-cache` | **1.93 GB** | **484 MB** | **0 MB (0 %) vs étape 1** | **16.7 s** | Réorganisation des couches pour réutiliser le cache des installations |
 
 ## Étape 0 — Baseline
 
@@ -85,3 +86,50 @@ Le temps de build mesuré passe de **46.2 s à 15.9 s**, mais cette différence 
 ![Construction de l'image après ajout du dockerignore](docs-images/1/1.png)
 
 ![Taille disque et taille du contenu après ajout du dockerignore](docs-images/1/2.png)
+
+## Étape 2 — Réutilisation du cache des dépendances
+
+### Pourquoi réorganiser les instructions ?
+
+À l'étape 1, `COPY . /app` précède les installations npm et système. Une nouvelle version de `server.js` peut donc entraîner leur réexécution, même lorsque les dépendances restent identiques.
+
+Séparer la copie des fichiers de dépendances de celle du code permet de conserver le cache des installations lorsque seul le code du serveur change.
+
+### Modifications
+
+- **Copie des fichiers de dépendances avant l'installation :**
+
+```dockerfile
+COPY package.json package-lock.json ./
+RUN npm install
+```
+
+`package.json` déclare les dépendances et les scripts du projet ; `package-lock.json` enregistre les versions résolues.
+
+- **Déplacement de la copie du code après les installations npm et système :**
+
+```dockerfile
+COPY . /app
+```
+
+Lorsque les fichiers de dépendances restent identiques et que le cache est disponible, Docker réutilise les couches d'installation. La nouvelle copie du code et le build sont exécutés si aucun cache correspondant à ce contenu n'existe déjà. Les commandes d'installation et les paquets restent inchangés.
+
+### Impact
+
+Cette optimisation vise à réduire le temps de reconstruction ; elle n'entraîne donc pas de réduction visible de la taille par rapport à l'étape 1.
+
+| Mesure de l'étape 2 | Résultat |
+| :--- | ---: |
+| Build avec `--no-cache` | **16.7 s** |
+| Build avec réutilisation du cache existant | **1.6 s** |
+| Reconstruction après modification de `server.js` (`node-app:v2-cache-test`) | **2.2 s** |
+
+Lors du test suivant, après modification de `server.js`, `COPY package.json package-lock.json ./`, `RUN npm install` et l'installation des paquets système affichent toujours `CACHED`, tandis que `COPY . /app` et `RUN npm run build` sont réexécutés, pour un temps total affiché de **2.2 secondes**.
+
+### Preuves d'exécution
+
+![Construction sans cache puis reconstruction avec cache](docs-images/2/1.png)
+
+![Taille disque et taille du contenu après réorganisation des couches](docs-images/2/2.png)
+
+![Reconstruction après modification du serveur avec réutilisation du cache des installations](docs-images/2/3.png)
