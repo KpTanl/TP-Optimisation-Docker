@@ -26,6 +26,7 @@ docker image ls --tree  "node-app:$version"
 | **1 — Dockerignore** | `node-app:v1-dockerignore` | **1.93 GB** | **484 MB** | **≈ 1 MB (0.21 %)** | **15.9 s** | Réduction du contexte de build |
 | **2 — Cache** | `node-app:v2-cache` | **1.93 GB** | **484 MB** | **0 MB (0 %) vs étape 1** | **16.7 s** | Réorganisation des couches pour réutiliser le cache des installations |
 | **3 — Alpine** | `node-app:v3-alpine` | **283 MB** | **69.8 MB** | **≈ 414.2 MB (85.6 %) vs étape 2** | **20.4 s** | Base Alpine et suppression des paquets système supplémentaires |
+| **4 — Dépendances de production** | `node-app:v4-production-deps` | **278 MB** | **68.9 MB** | **≈ 0.9 MB (1.3 %) vs étape 3** | **14.7 s** | Installation stricte sans dépendances de développement |
 
 ## Étape 0 — Baseline
 
@@ -177,3 +178,43 @@ Les vérifications manuelles ont confirmé le fonctionnement du serveur sous Alp
 ### Preuves d'exécution
 
 ![Construction de l'image Alpine et mesure de sa taille](docs-images/3/1.png)
+
+## Étape 4 — Installation des dépendances de production
+
+### Pourquoi exclure les dépendances de développement ?
+
+Le conteneur démarre avec `node server.js`. Il n'utilise pas `nodemon`, destiné au redémarrage automatique pendant le développement. Installer cet outil et ses dépendances spécifiques dans l'image augmente sa taille sans contribuer au fonctionnement du serveur.
+
+### Modifications
+
+Remplacement de `RUN npm install` par :
+
+```dockerfile
+RUN npm ci --omit=dev
+```
+
+`npm ci` installe les versions du fichier `package-lock.json` sans le modifier et échoue si les déclarations de dépendances ne correspondent pas à `package.json`. L'option `--omit=dev` exclut du disque les dépendances réservées au développement. `nodemon` reste déclaré pour le développement local ; `express` et `mongodb`, déclarés dans `dependencies`, restent installés dans l'image.
+
+Le script `build` actuel se limite à un affichage et ne nécessite aucun outil de développement. Cette sélection des dépendances ne change pas le mode d'exécution du serveur : la configuration `NODE_ENV=development` reste celle des étapes précédentes.
+
+### Impact
+
+| Mesure | Étape 3 | Étape 4 | Réduction |
+| :--- | ---: | ---: | ---: |
+| Disk Usage | 283 MB | **278 MB** | **≈ 5 MB (1.8 %)** |
+| Content Size | 69.8 MB | **68.9 MB** | **≈ 0.9 MB (1.3 %)** |
+
+Les réductions sont calculées à partir des valeurs arrondies affichées par Docker. L'exclusion des dépendances de développement apporte un gain de taille modeste ; `npm ci` assure en complément une installation stricte à partir du verrouillage existant.
+
+| Conditions de construction | Temps total |
+| :--- | ---: |
+| `--no-cache`, image de base déjà disponible localement | **4.7 s** |
+| Après nettoyage des images et du cache, avec `--pull --no-cache` et téléchargement de la base | **14.7 s** |
+
+Par comparaison avec l'étape 3, la durée de construction reste proche lorsque l'image de base est déjà disponible localement : environ **4.5 s** contre **4.7 s**. Avec téléchargement de la base, le total passe de **20.4 s** à **14.7 s**. Cet écart est principalement lié au temps de téléchargement et d'extraction de la base, passé de **15.6 s** à **10.5 s**, et dépend notamment du débit réseau.
+
+### Preuves d'exécution
+
+![Construction avec les dépendances de production et mesure de la taille de l'image](docs-images/4/1.png)
+
+![Construction après nettoyage du cache avec téléchargement de l'image de base](docs-images/4/2.png)
