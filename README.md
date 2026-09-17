@@ -36,12 +36,15 @@ docker image ls --tree  "node-app:$version"
 - Taille sur disque : **1.93 GB**.
 - Taille du contenu : **485 MB**.
 - Temps de construction à froid : **46.2 secondes**.
+- Mesure complémentaire avec la base déjà disponible localement et `--no-cache` : **13.9 secondes**. Le code provient du commit `117acfc` dans une copie isolée ; la référence de base est fixée au digest de la mesure initiale pour conserver la même version. L'étape `FROM` affiche **0.0 s**, sans téléchargement des couches ; les installations npm et système sont réexécutées.
 
 ### Preuves d'exécution
 
 ![Construction de l'image baseline et taille finale](docs-images/0/1.png)
 
 ![Taille disque et taille du contenu de l'image baseline](docs-images/0/2.png)
+
+![Construction de la baseline sans cache des instructions avec la base déjà disponible localement](docs-images/add-comparison/0-local.png)
 
 ## Étape 1 — Réduction du contexte de build
 
